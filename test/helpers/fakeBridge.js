@@ -49,6 +49,10 @@ export function bridge(over = {}) {
     silent: [],
     /** false: a command answers OK and changes nothing. */
     applies: true,
+    /** Shows ">" on connection and answers a lone line feed with "\r\n>" again. */
+    wakeupReply: false,
+    /** command word -> an error answer without "OK" (e.g. "Error 5"). */
+    errors: {},
     ...over,
   };
 }
@@ -164,6 +168,9 @@ export function fakeBridges(map = { [HOST]: bridge() }) {
             const line = buffer.slice(0, index).replace(/\r$/, '');
             buffer = buffer.slice(index + 1);
             if (line === '') {
+              if (b.wakeupReply) {
+                setImmediate(() => emit('\r\n>'));
+              }
               continue;
             }
             server.lines.push({ host, line, at: Date.now() });
@@ -171,7 +178,9 @@ export function fakeBridges(map = { [HOST]: bridge() }) {
             if (b.silent.includes(word)) {
               continue;
             }
-            const reply = (b.echo ? `${line}\r\n` : '') + server.answer(b, line);
+            const error = b.errors[word];
+            const reply =
+              (b.echo ? `${line}\r\n` : '') + (error ? `${error}\r\n>` : server.answer(b, line));
             const delay = b.delays[word];
             if (delay) {
               setTimeout(() => emit(reply), delay);

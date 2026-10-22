@@ -25,9 +25,11 @@
 //     "sent, without confirmation", a guard and one more read 5 s later;
 //   - the ack never waits for a publication to Gladys;
 //   - one command at a time per unit; a stop (off) is never refused for that:
-//     it cancels the command waiting for the same unit, takes a connection of
-//     its own (never behind a poll), is never skipped as "already off" and
-//     works after a restart before the first read (serial kept in /data).
+//     it cancels the command waiting for the same unit, goes through the stop
+//     lane of its bridge (one connection more, never behind a poll; 3 at most
+//     per bridge in all), needs no read before it, is never skipped as
+//     "already off" and works after a restart before the first read (id and
+//     serial kept in /data); other commands wait for it ("still running").
 // -----------------------------------------------------------------------------
 
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
@@ -88,6 +90,10 @@ const freshBridge = (address, timers) => ({
   running: undefined,
   followUp: undefined,
   slots: new Slots(CONNECTIONS.shared, { timers }),
+  /** The stop lane: stops waiting, and the session that writes them (see queueStop). */
+  stops: { queue: [], running: undefined },
+  /** The serial number kept for the address (the identity check). */
+  serial: undefined,
 });
 
 export class CoolMasterApp {
@@ -119,6 +125,8 @@ export class CoolMasterApp {
     this.lastTestAt = -Infinity;
     /** `${bridge id}:${uid}` -> { cancelled } of the command in flight. */
     this.inFlight = new Map();
+    /** `${bridge id}:${uid}` -> the number of stops in flight. */
+    this.stopping = new Map();
     /** `${bridge id}:${uid}:${field}` -> { from, expected, moved, until }: sent, not seen yet. */
     this.guards = new Map();
   }
@@ -146,7 +154,21 @@ export class CoolMasterApp {
     if (generation !== this.generation) {
       return;
     }
+    // An internal restart (configuration saved) keeps what this process knows
+    // better than /data: the attempt time is written at most once a minute.
+    const known = this.memory.bridges;
     this.memory = normalizeMemory(loaded, this.now());
+    const exact = new Set();
+    for (const [key, entry] of known) {
+      const stored = this.memory.bridges.get(key);
+      const readAt = Math.max(entry.attemptAt, entry.readAt ?? 0);
+      if (!stored) {
+        this.memory.bridges.set(key, { ...entry, readAt });
+      } else {
+        stored.readAt = Math.max(stored.attemptAt, readAt);
+      }
+      exact.add(key);
+    }
     this.bridges = new Map(
       this.config.addresses.map((a) => [addressKey(a), freshBridge(a, this.timers)]),
     );
@@ -156,10 +178,14 @@ export class CoolMasterApp {
     this.publisher.start();
     await this.publishAll(generation);
     // The first read of each bridge: never sooner than the interval after the
-    // last attempt (kept in /data across restarts).
+    // last attempt. Read back from /data only (a container restart), the time
+    // may be up to a minute old: then at least a minute after it.
     for (const bridge of this.bridges.values()) {
-      const attemptAt = this.memory.bridges.get(bridge.key)?.attemptAt ?? 0;
-      this.schedule(bridge, Math.max(0, attemptAt + this.interval - this.now()));
+      const entry = this.memory.bridges.get(bridge.key);
+      const exactly = exact.has(bridge.key);
+      const attemptAt = (exactly ? entry?.readAt : entry?.attemptAt) ?? 0;
+      const wait = exactly ? this.interval : Math.max(this.interval, TIMINGS.attemptSave);
+      this.schedule(bridge, Math.max(0, attemptAt + wait - this.now()));
     }
   }
 
@@ -298,7 +324,7 @@ export class CoolMasterApp {
   bridgeMemory(bridge) {
     let entry = this.memory.bridges.get(bridge.key);
     if (!entry) {
-      entry = { serial: undefined, attemptAt: 0 };
+      entry = { id: undefined, fallback: false, serial: undefined, attemptAt: 0 };
       this.memory.bridges.set(bridge.key, entry);
     }
     return entry;
@@ -358,6 +384,9 @@ export class CoolMasterApp {
     }
     // The attempt is kept in /data before the read (at most once a minute).
     const memory = this.bridgeMemory(bridge);
+    // The exact time stays in memory (a configuration restart reads it); /data
+    // gets it at most once a minute.
+    memory.readAt = this.now();
     if (this.now() - memory.attemptAt >= TIMINGS.attemptSave) {
       memory.attemptAt = this.now();
       await this.saveMemory();
@@ -451,31 +480,50 @@ export class CoolMasterApp {
     const memory = this.bridgeMemory(bridge);
     const serial = serialOf(info);
     bridge.version = versionOf(info);
+    const before = JSON.stringify(memory);
+    if (!memory.id) {
+      // The id of the devices, chosen once per address and kept in /data: the
+      // serial number, or the readable fallback when none is shown (or when
+      // devices of this address were already created under the fallback).
+      const fallback = fallbackId(bridge.key);
+      const createdUnderFallback = (this.gladys.devices ?? []).some(
+        (d) => parseDeviceId(d?.external_id)?.bridge === fallback,
+      );
+      memory.fallback = !serial || createdUnderFallback;
+      memory.id = memory.fallback ? fallback : serial;
+    }
     if (serial) {
       if (memory.serial && memory.serial !== serial) {
         // Another bridge answers at this address (a DHCP swap): its own devices.
         this.logger.warn(`CoolMasterNet ${bridge.key}: another bridge answers at this address`);
         bridge.otherBridge = true;
+        memory.id = serial;
+        memory.fallback = false;
+      } else if (memory.serial === serial) {
+        // The serial kept: the note of a previous swap is over.
+        bridge.otherBridge = false;
       }
-      if (bridge.id && bridge.id !== serial) {
-        bridge.units = new Map();
-      }
-      bridge.id = serial;
+      memory.serial = serial;
       bridge.verified = true;
-      if (memory.serial !== serial) {
-        memory.serial = serial;
-        await this.saveMemory();
-      }
-    } else if (memory.serial) {
-      // Unreadable this time: not "another bridge", but nothing is shown on it.
-      bridge.id = memory.serial;
-      bridge.verified = false;
     } else {
-      bridge.id = fallbackId(bridge.key);
-      bridge.verified = true;
+      // Unreadable this time (a serial was seen before): not "another bridge",
+      // but nothing is shown on it. Never seen: the fallback, verified.
+      bridge.verified = !memory.serial;
+    }
+    if (bridge.id !== undefined && bridge.id !== memory.id) {
+      bridge.units = new Map();
+    }
+    bridge.id = memory.id;
+    bridge.serial = memory.serial;
+    if (JSON.stringify(memory) !== before) {
+      await this.saveMemory();
     }
     const owner = [...this.bridges.values()].find(
-      (b) => b !== bridge && b.id === bridge.id && !b.duplicateOf && b.online,
+      (b) =>
+        b !== bridge &&
+        !b.duplicateOf &&
+        b.online &&
+        (b.id === bridge.id || (bridge.serial && b.serial === bridge.serial)),
     );
     bridge.duplicateOf = owner && bridge.verified ? owner.key : undefined;
     bridge.online = true;
@@ -747,7 +795,7 @@ export class CoolMasterApp {
     return new Error(word(text, this.config.language));
   }
 
-  /** The bridge of a device: by its id, or by the serial kept in /data for its address. */
+  /** The bridge of a device: by its id, or by the id kept in /data for its address. */
   bridgeFor(bridgeId) {
     for (const bridge of this.bridges.values()) {
       if (bridge.id === bridgeId && !bridge.duplicateOf) {
@@ -756,14 +804,36 @@ export class CoolMasterApp {
     }
     for (const bridge of this.bridges.values()) {
       const memory = this.memory.bridges.get(bridge.key);
-      if (
-        bridge.id === undefined &&
-        (memory?.serial === bridgeId || (!memory?.serial && fallbackId(bridge.key) === bridgeId))
-      ) {
+      if (bridge.id === undefined && memory?.id === bridgeId) {
         return bridge;
       }
     }
     return undefined;
+  }
+
+  /**
+   * Whether the bridge that answers is the one of the device: 'ok', 'other'
+   * (another serial number) or 'identity' (no serial shown where one was).
+   * The id kept for the address names the device; the serial kept checks it.
+   */
+  identity(bridge, deviceBridgeId, serial) {
+    const memory = this.memory.bridges.get(bridge.key);
+    if (memory?.id === deviceBridgeId) {
+      if (!memory.serial) {
+        return 'ok';
+      }
+      if (!serial) {
+        return 'identity';
+      }
+      return serial === memory.serial ? 'ok' : 'other';
+    }
+    if (!memory?.id) {
+      if (serial) {
+        return serial === deviceBridgeId ? 'ok' : 'other';
+      }
+      return deviceBridgeId === fallbackId(bridge.key) ? 'ok' : 'identity';
+    }
+    return 'other';
   }
 
   /** The setpoint bounds: SETPOINT, within the bounds of the created feature. */
@@ -798,8 +868,9 @@ export class CoolMasterApp {
       throw this.refusal(ERRORS.swingDisabled);
     }
     if (change.setpointC !== undefined) {
+      // The bounds on the value asked, before any rounding.
       const [min, max] = this.setpointBounds(feature);
-      if (change.setpointC < min || change.setpointC > max) {
+      if (change.asked < min || change.asked > max) {
         throw this.refusal(ERRORS.outOfRange(min, max));
       }
     }
@@ -811,24 +882,198 @@ export class CoolMasterApp {
       if (pending) {
         pending.cancelled = true;
       }
-    } else if (pending) {
+    } else if (pending || this.stopping.has(unitRef)) {
+      // Never "already so" on a state a stop in flight is about to change.
       throw this.refusal(ERRORS.stillRunning);
     }
     const bridge = this.bridgeFor(target.bridge);
     if (!bridge || (!protective && !this.live(bridge))) {
       throw this.refusal(ERRORS.unknownUnit);
     }
-    const entry = { cancelled: false };
-    if (!protective) {
-      this.inFlight.set(unitRef, entry);
+    if (protective) {
+      this.stopping.set(unitRef, (this.stopping.get(unitRef) ?? 0) + 1);
+      try {
+        return await this.queueStop(bridge, target, received);
+      } finally {
+        const left = (this.stopping.get(unitRef) ?? 1) - 1;
+        if (left > 0) {
+          this.stopping.set(unitRef, left);
+        } else {
+          this.stopping.delete(unitRef);
+        }
+      }
     }
+    const entry = { cancelled: false };
+    this.inFlight.set(unitRef, entry);
     try {
-      return await this.command(bridge, target, change, { received, protective, entry });
+      return await this.command(bridge, target, change, { received, entry });
     } finally {
       if (this.inFlight.get(unitRef) === entry) {
         this.inFlight.delete(unitRef);
       }
     }
+  }
+
+  // --- Stops -----------------------------------------------------------------
+
+  /**
+   * A stop joins the stop lane of its bridge: one connection of its own (never
+   * behind the polls nor the other commands), one at a time per bridge. The
+   * stops that arrive while it is open are added in order: `set` once (the
+   * identity), one `off <uid>` per stop (each within its own deadline, checked
+   * right before its write), then one `ls2` to confirm the lot. Never refused
+   * for a command in flight, a configuration saved meanwhile (generation) or a
+   * slow state read: a stop needs no read before it.
+   */
+  queueStop(bridge, target, received) {
+    return new Promise((resolve, reject) => {
+      bridge.stops.queue.push({
+        target,
+        sendBy: received + TIMINGS.commandSendBy,
+        answerBy: received + TIMINGS.commandAnswerBy,
+        resolve,
+        reject,
+      });
+      this.startStops(bridge);
+    });
+  }
+
+  startStops(bridge) {
+    if (bridge.stops.running || bridge.stops.queue.length === 0) {
+      return;
+    }
+    bridge.stops.running = this.runStops(bridge)
+      .catch((err) => this.logger.error(`CoolMasterNet stop lane failed: ${err.message}`))
+      .finally(() => {
+        bridge.stops.running = undefined;
+        this.startStops(bridge);
+      });
+  }
+
+  async runStops(bridge) {
+    const queue = bridge.stops.queue;
+    while (queue.length > 0) {
+      const latest = Math.max(...queue.map((job) => job.sendBy));
+      let session;
+      try {
+        session = await openSession(bridge.address, {
+          connect: this.connect,
+          wakeup: this.config.wakeup,
+          timeoutMs: Math.min(TIMINGS.connectTimeout, latest - 300 - this.now()),
+          now: this.now,
+          timers: this.timers,
+        });
+      } catch (err) {
+        const text =
+          err.kind === ERROR_KINDS.LATE || err.kind === ERROR_KINDS.TIMEOUT
+            ? ERRORS.tooSlow
+            : ERRORS.notSent(errorReason(err));
+        for (const job of queue.splice(0)) {
+          job.reject(this.refusal(text));
+        }
+        return;
+      }
+      try {
+        await this.stopSession(bridge, session, queue);
+      } finally {
+        session.close();
+      }
+    }
+  }
+
+  async stopSession(bridge, session, queue) {
+    let serial;
+    try {
+      const latest = Math.max(...queue.map((job) => job.sendBy));
+      const timeoutMs = Math.min(TIMINGS.requestTimeout, latest - this.now());
+      serial = serialOf(parseInfo((await session.request('set', { timeoutMs })).text));
+    } catch (err) {
+      const text =
+        err.kind === ERROR_KINDS.LATE ? ERRORS.tooSlow : ERRORS.unknownState(errorReason(err));
+      for (const job of queue.splice(0)) {
+        job.reject(this.refusal(text));
+      }
+      return;
+    }
+    const written = [];
+    while (queue.length > 0 && !session.closed) {
+      const job = queue.shift();
+      const check = this.identity(bridge, job.target.bridge, serial);
+      if (check !== 'ok') {
+        job.reject(this.refusal(check === 'other' ? ERRORS.otherBridge : ERRORS.identityUnknown));
+        continue;
+      }
+      this.logger.info(`CoolMasterNet ${bridge.key}: ${job.target.uid} power -> off`);
+      try {
+        const answer = await session.request(`off ${job.target.uid}`, {
+          timeoutMs: Math.min(TIMINGS.requestTimeout, job.answerBy - this.now()),
+          beforeSend: () => {
+            if (!this.config.allowCommands) {
+              throw this.refusal(ERRORS.disabled);
+            }
+            if (this.now() > job.sendBy) {
+              throw this.refusal(ERRORS.tooSlow);
+            }
+          },
+        });
+        if (answer.ok) {
+          written.push(job);
+        } else {
+          job.reject(this.refusal(ERRORS.refused));
+        }
+      } catch (err) {
+        if (err.beforeSend) {
+          job.reject(err);
+        } else if (!err.sent) {
+          job.reject(this.refusal(ERRORS.notSent(errorReason(err))));
+        } else if (err.kind === ERROR_KINDS.REJECTED) {
+          job.reject(this.refusal(ERRORS.refused));
+        } else {
+          // A silence or a closed connection after the write: it may have been applied.
+          this.stopUnconfirmed(bridge, job, errorReason(err));
+        }
+      }
+    }
+    if (written.length === 0) {
+      return;
+    }
+    // One read back for the lot.
+    const by = Math.min(...written.map((job) => job.answerBy));
+    let units;
+    try {
+      if (session.closed) {
+        throw new CoolError(ERROR_KINDS.CLOSED, 'Connection closed');
+      }
+      units = await this.status(session, bridge, undefined, () =>
+        Math.min(TIMINGS.requestTimeout, by - this.now()),
+      );
+    } catch (err) {
+      for (const job of written) {
+        this.stopUnconfirmed(bridge, job, errorReason(err));
+      }
+      return;
+    }
+    for (const job of written) {
+      const state = units.get(job.target.uid);
+      this.applyUnit(bridge, job.target, state);
+      if (state?.on === false) {
+        this.guards.delete(`${job.target.bridge}:${job.target.uid}:on`);
+        job.resolve();
+      } else {
+        this.stopUnconfirmed(bridge, job, 'state not changed yet');
+      }
+    }
+  }
+
+  stopUnconfirmed(bridge, job, reason) {
+    const key = `${job.target.bridge}:${job.target.uid}`;
+    this.guard({
+      key: `${key}:on`,
+      from: this.bridgeFor(job.target.bridge)?.units.get(job.target.uid)?.on ?? true,
+      expected: false,
+    });
+    this.scheduleFollowUp(bridge);
+    job.reject(this.refusal(ERRORS.sentUnconfirmed(reason)));
   }
 
   /** The checks right before the write, on the latest configuration. */
@@ -847,17 +1092,14 @@ export class CoolMasterApp {
     }
   }
 
-  async command(bridge, target, change, { received, protective, entry }) {
+  async command(bridge, target, change, { received, entry }) {
     const generation = this.generation;
     const sendBy = received + TIMINGS.commandSendBy;
     const answerBy = received + TIMINGS.commandAnswerBy;
     const left = (by) => Math.min(TIMINGS.requestTimeout, by - this.now());
     let release;
     try {
-      release = await bridge.slots.acquire({
-        priority: protective,
-        waitMs: sendBy - 1_000 - this.now(),
-      });
+      release = await bridge.slots.acquire({ waitMs: sendBy - 1_000 - this.now() });
     } catch {
       throw this.refusal(ERRORS.tooSlow);
     }
@@ -885,15 +1127,13 @@ export class CoolMasterApp {
       const wanted = this.wanted(change, state);
       const field = Object.keys(wanted)[0];
       const guardKey = `${target.bridge}:${target.uid}:${field}`;
-      if (!protective) {
-        if (state[field] === undefined || (field === 'setpoint' && state.unit === undefined)) {
-          throw this.refusal(ERRORS.incompleteState);
-        }
-        this.checkPrevious(target, field, state);
-        if (this.same(field, state[field], wanted[field]) && !this.guardActive(guardKey)) {
-          // Already so: nothing sent.
-          return;
-        }
+      if (state[field] === undefined || (field === 'setpoint' && state.unit === undefined)) {
+        throw this.refusal(ERRORS.incompleteState);
+      }
+      this.checkPrevious(target, field, state);
+      if (this.same(field, state[field], wanted[field]) && !this.guardActive(guardKey)) {
+        // Already so: nothing sent.
+        return;
       }
       const line = commandLine(target.uid, wanted);
       this.logger.info(
@@ -910,7 +1150,7 @@ export class CoolMasterApp {
         if (err.beforeSend) {
           throw err;
         }
-        if (err.notSent || !session.written) {
+        if (!err.sent) {
           throw this.refusal(ERRORS.notSent(errorReason(err)));
         }
         if (err.kind === ERROR_KINDS.REJECTED) {
@@ -922,9 +1162,8 @@ export class CoolMasterApp {
         throw this.refusal(ERRORS.sentUnconfirmed(errorReason(err)));
       }
       if (!answer.ok) {
-        this.guard(plan);
-        this.scheduleFollowUp(bridge);
-        throw this.refusal(ERRORS.sentUnconfirmed('no OK'));
+        // The bridge answered, without its "OK": an error of its own, not applied.
+        throw this.refusal(ERRORS.refused);
       }
       // Confirmed only by the state read back.
       let back;
@@ -959,10 +1198,9 @@ export class CoolMasterApp {
     let state;
     try {
       info = parseInfo((await session.request('set', { timeoutMs: left() })).text);
-      const serial = serialOf(info);
-      const memory = this.memory.bridges.get(bridge.key);
-      if (serial ? serial !== target.bridge : memory?.serial || !target.bridge.startsWith('a-')) {
-        throw new CoolError(serial ? 'other' : 'identity', 'identity');
+      const check = this.identity(bridge, target.bridge, serialOf(info));
+      if (check !== 'ok') {
+        throw new CoolError(check, 'identity');
       }
       state = await this.readUnit(session, bridge, target.uid, change.swing !== undefined, left);
     } catch (err) {

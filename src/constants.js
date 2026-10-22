@@ -114,5 +114,9 @@ export const TIMINGS = {
   guard: 90 * SECOND,
 };
 
-/** Connections to one bridge at once: polls and commands share 2, a stop has its own (3 in all, as pycoolmasternet). */
+/**
+ * Connections to one bridge at once: polls and commands other than a stop
+ * share 2; every stop goes through one lane of its own, one connection at a
+ * time (3 in all, as pycoolmasternet).
+ */
 export const CONNECTIONS = { shared: 2 };

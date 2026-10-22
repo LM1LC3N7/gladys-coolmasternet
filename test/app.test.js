@@ -484,3 +484,191 @@ test('nothing logged holds what the bridge sent', async (t) => {
     assert.doesNotMatch(line, /283B96|serial number|Baud/i);
   }
 });
+
+// --- Review 1 ------------------------------------------------------------------
+
+function bigBridge(n) {
+  const units = {};
+  for (let i = 0; i < n; i += 1) {
+    units[`L1.${100 + i}`] = unit();
+  }
+  return bridge({ units });
+}
+
+function stopAll(gladys, n) {
+  const acks = [];
+  for (let i = 0; i < n; i += 1) {
+    const uid = `l1-${100 + i}`;
+    const d = gladys.fake.devices.find((x) => x.external_id === device(uid));
+    const f = d.features.find((x) => x.external_id === feature('power', uid));
+    acks.push(gladys.fake.setValue(d, f, 0));
+  }
+  return acks;
+}
+
+test('I1: wake-up with a bridge that prompts again for the line feed: units read', async (t) => {
+  const server = fakeBridges({ [HOST]: bridge({ wakeupReply: true }) });
+  const { gladys } = await setup(t, { server, config: { ...CONFIG, wakeup_prompt: true } });
+  assert.deepEqual(
+    server.lines.map((l) => l.line),
+    ['set', 'ls2'],
+  );
+  assert.equal(gladys.fake.discoveredDevices.length, 2);
+  assert.equal(last(gladys, 'power'), 1);
+});
+
+test('I2: twenty stops at once: one stop lane, 3 connections at most, every stop written', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(20) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  const before = server.connections.length;
+  const acks = stopAll(gladys, 20);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  assert.ok(server.maxOpen <= 3, `maxOpen ${server.maxOpen}`);
+  assert.equal(server.commands('off').length, 20);
+  assert.ok(
+    results.every((r) => r.success),
+    results.map(failure).join(' | '),
+  );
+  assert.ok(server.connections.length - before <= 2, 'one or two lane sessions');
+  const after = server.lines.slice(server.lines.findIndex((l) => l.line.startsWith('off')));
+  assert.equal(after.filter((l) => l.line === 'ls2').length, 1, 'one read back for the lot');
+});
+
+test('I2: a bridge that takes 4 sessions only: every stop is still written', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(20) });
+  const { gladys, app, advance } = await setup(t, { server, config: ALLOWED });
+  app.connect = (a, o) =>
+    server.open >= 4
+      ? Promise.reject(Object.assign(new Error('refused'), { kind: 'unreachable' }))
+      : server.connect(a, o);
+  const acks = stopAll(gladys, 20);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  assert.equal(server.commands('off').length, 20);
+  assert.ok(results.every((r) => r.success));
+});
+
+test('I3: fallback id, then a serial shown: same external ids, commands accepted', async (t) => {
+  const server = fakeBridges({ [HOST]: bridge({ serial: undefined }) });
+  const store = memoryStore();
+  const { gladys, advance, send } = await setup(t, { server, store, config: ALLOWED });
+  const fallback = 'a-192-168-1-50';
+  assert.equal(store.data.bridges[HOST].id, fallback);
+  assert.equal(store.data.bridges[HOST].fallback, true);
+  server.bridges[HOST].serial = SERIAL;
+  await advance(MINUTE + SECOND);
+  const ids = gladys.fake.discoveredDevices.map((d) => d.external_id);
+  assert.ok(!ids.some((id) => id.includes(SERIAL)), 'no device under the serial');
+  assert.equal(store.data.bridges[HOST].id, fallback);
+  assert.equal(store.data.bridges[HOST].serial, SERIAL, 'kept for the identity check');
+  assert.equal(transportOf(gladys, 'l1-100'), undefined);
+  const ack = await send('power', 0, { serial: fallback });
+  assert.equal(ack.success, true, failure(ack));
+  assert.doesNotMatch(message(gladys).en, /Another bridge/);
+  // From now on, another serial at this address is another bridge.
+  server.bridges[HOST].serial = SERIAL2;
+  await advance(MINUTE);
+  const refused = await send('target-temperature', 22, { serial: fallback });
+  assert.equal(refused.success, false);
+});
+
+test('M2: a configuration restart never reads sooner than the interval (30 s)', async (t) => {
+  const server = fakeBridges();
+  const { app, advance } = await setup(t, {
+    server,
+    config: { addresses: HOST, poll_interval: 30 },
+  });
+  await advance(30 * SECOND);
+  const lastRead = server.connections.at(-1).at;
+  await advance(SECOND);
+  await app.configUpdated({ addresses: HOST, poll_interval: 30, swing_support: true });
+  await advance(40 * SECOND);
+  const reads = server.connections.filter((c) => c.at > lastRead);
+  assert.ok(reads.length > 0);
+  assert.ok(reads[0].at - lastRead >= 30 * SECOND, `${(reads[0].at - lastRead) / 1000} s`);
+});
+
+test('M2: after a container restart with an interval under a minute, a minute at least', async (t) => {
+  const server = fakeBridges();
+  const store = memoryStore({
+    bridges: { [HOST]: { id: SERIAL, serial: SERIAL, attemptAt: NOW } },
+  });
+  await setup(t, { server, store, config: { addresses: HOST, poll_interval: 30 }, create: false });
+  assert.equal(server.connections.length, 0);
+});
+
+test('M3: a stop during a configuration restart is still sent', async (t) => {
+  const server = fakeBridges({ [HOST]: bridge({ delays: { set: 800 } }) });
+  const { gladys, app, advance } = await setup(t, { server, config: ALLOWED });
+  await advance(MINUTE);
+  const d = gladys.fake.devices.find((x) => x.external_id === device());
+  const f = d.features.find((x) => x.external_id === feature('power'));
+  const ack = gladys.fake.setValue(d, f, 0);
+  await advance(300);
+  app.configUpdated({ ...ALLOWED, poll_interval: 120 });
+  await advance(6 * SECOND);
+  const result = await ack;
+  assert.equal(result.success, true, failure(result));
+  assert.equal(server.commands('off').length, 1);
+});
+
+test('M4: a stop needs no read of the unit before it', async (t) => {
+  const server = fakeBridges();
+  const { send } = await setup(t, { server, config: ALLOWED });
+  server.bridges[HOST].delays = { ls2: 3_400 };
+  const before = server.lines.length;
+  const ack = await send('power', 0);
+  const lines = server.lines.slice(before).map((l) => l.line);
+  assert.deepEqual(lines.slice(0, 2), ['set', 'off L1.100']);
+  assert.equal(ack.success, true, failure(ack));
+});
+
+test('M1: an "on" while a stop is in flight is refused, never "already so"', async (t) => {
+  const server = fakeBridges({ [HOST]: bridge({ delays: { set: 400 } }) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  const d = gladys.fake.devices.find((x) => x.external_id === device());
+  const f = d.features.find((x) => x.external_id === feature('power'));
+  const stop = gladys.fake.setValue(d, f, 0);
+  await advance(100);
+  const start = gladys.fake.setValue(d, f, 1);
+  await settle();
+  await advance(6 * SECOND);
+  const [a, b] = await Promise.all([stop, start]);
+  assert.equal(a.success, true);
+  assert.equal(b.success, false);
+  assert.match(failure(b), /encore en cours/);
+  assert.deepEqual(
+    server.writes().map((l) => l.line),
+    ['off L1.100'],
+  );
+});
+
+test('M5: an error answer of the bridge is "refused", not "sent, without confirmation"', async (t) => {
+  const server = fakeBridges({ [HOST]: bridge({ errors: { temp: 'Error 5' } }) });
+  const { send } = await setup(t, { server, config: ALLOWED });
+  const ack = await send('target-temperature', 23);
+  assert.equal(ack.success, false);
+  assert.match(failure(ack), /refusé/);
+  assert.doesNotMatch(failure(ack), /sans confirmation/);
+});
+
+test('M6: the bounds are checked before rounding', async (t) => {
+  const server = fakeBridges();
+  const { send } = await setup(t, { server, config: ALLOWED });
+  const ack = await send('target-temperature', 15.76);
+  assert.equal(ack.success, false);
+  assert.equal(server.connections.length, 1);
+});
+
+test('M8: the "another bridge" note goes once the new serial is the kept one', async (t) => {
+  const server = fakeBridges();
+  const { gladys, advance } = await setup(t, { server });
+  server.bridges[HOST].serial = SERIAL2;
+  await advance(MINUTE);
+  assert.match(message(gladys).en, /Another bridge now answers/);
+  await advance(MINUTE);
+  assert.doesNotMatch(message(gladys).en, /Another bridge/);
+});

@@ -67,16 +67,33 @@ Les commandes suivent des règles strictes :
   relue 5 s plus tard ;
 - la consigne est bornée de 16 à 30 °C : une valeur hors bornes est refusée ;
 - l'**arrêt** n'est jamais bloqué par une autre commande en cours : il annule
-  la commande en attente pour la même unité, passe par sa propre connexion et
-  fonctionne même juste après un redémarrage de l'intégration.
+  la commande en attente pour la même unité et fonctionne même juste après un
+  redémarrage de l'intégration. Les arrêts passent par une voie à eux (une
+  connexion de plus, jamais derrière les lectures) : un « tout éteindre »
+  envoie un `off` par unité sur une seule connexion, puis relit l'ensemble.
+  L'intégration n'ouvre jamais plus de 3 connexions à la fois vers une
+  passerelle ;
+- tant qu'un arrêt est en cours sur une unité, les autres commandes vers
+  cette unité sont refusées (« encore en cours »).
+
+La marche/arrêt est une fonctionnalité de climatisation
+(`air-conditioning/binary`), comme pour MELCloud. Selon ce qui l'expose
+(assistant vocal, HomeKit, Google Home, MCP), un « éteins tout » peut éteindre
+les unités, et un « allume tout » les allumer si les commandes sont
+autorisées. Les scènes « allumer / éteindre les interrupteurs » ne les
+visent pas.
 
 ## Identifiants des appareils
 
 Les appareils sont identifiés par le numéro de série de la passerelle (lu par
-la commande `set`) et l'adresse de l'unité sur le bus. Changer l'adresse IP
-de la passerelle ne crée donc pas de nouveaux appareils. Si la passerelle
-n'affiche aucun numéro de série, l'intégration utilise à la place l'adresse
-saisie (« a-192-168-1-50 ») : les appareils suivent alors cette adresse.
+la commande `set`) et l'adresse de l'unité sur le bus. Si la passerelle
+n'affiche aucun numéro de série à sa première lecture, l'intégration utilise
+à la place l'adresse saisie (« a-192-168-1-50 »). L'identifiant choisi à la
+première lecture est gardé dans `/data` pour cette adresse et ne change plus :
+un numéro de série apparu ensuite (mise à jour du firmware) ne sert qu'à
+vérifier que c'est bien la même passerelle, sans créer de nouveaux appareils.
+Une autre passerelle à la même adresse (autre numéro de série) donne ses
+propres appareils.
 
 ## Limites
 

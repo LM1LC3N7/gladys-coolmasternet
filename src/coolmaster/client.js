@@ -103,11 +103,20 @@ export class Session {
     // The terminator may straddle two chunks: searched in the tail of the
     // previous one plus this one, never in the whole buffer again.
     const window = this.tail + text;
-    const index = this.waiter ? window.indexOf(this.waiter.terminator) : -1;
+    // The first of the terminators the waiter accepts (the earliest end wins).
+    let index = -1;
+    let length = 0;
+    for (const terminator of this.waiter?.terminators ?? []) {
+      const at = window.indexOf(terminator);
+      if (at !== -1 && (index === -1 || at + terminator.length < index + length)) {
+        index = at;
+        length = terminator.length;
+      }
+    }
     if (index !== -1) {
       const before = this.tail.length;
       // Bytes of this chunk up to the end of the terminator.
-      const cut = index + this.waiter.terminator.length - before;
+      const cut = index + length - before;
       this.chunks.push(text.slice(0, Math.max(0, cut)));
       const all = this.chunks.join('');
       const rest = text.slice(Math.max(0, cut));
@@ -158,13 +167,13 @@ export class Session {
     }
   }
 
-  /** Waits for `terminator`, within `timeoutMs`, at most `limit` characters. */
-  readUntil(terminator, timeoutMs, limit) {
+  /** Waits for one of `terminators`, within `timeoutMs`, at most `limit` characters. */
+  readUntil(terminators, timeoutMs, limit) {
     if (this.closed) {
       return Promise.reject(new CoolError(ERROR_KINDS.CLOSED, 'Connection closed'));
     }
     return new Promise((resolve, reject) => {
-      const waiter = { terminator, resolve, reject, limit, timer: undefined };
+      const waiter = { terminators, resolve, reject, limit, timer: undefined };
       waiter.timer = this.timers.setTimeout(
         () => {
           if (this.waiter === waiter) {
@@ -185,13 +194,24 @@ export class Session {
     });
   }
 
-  /** The first prompt ">" (after a line feed when `wakeup`). */
+  /**
+   * The first prompt: ">" on its own, or, after the wake-up line feed, the
+   * prompt that answers it ("\r\n>" or ">>", as pycoolmasternet reads it), so
+   * a bridge that shows ">" on connection then again after the line feed
+   * never leaves a prompt behind.
+   */
   async prompt({ wakeup = false, timeoutMs = TIMINGS.requestTimeout } = {}) {
     if (wakeup) {
       this.socket.write('\n');
+      await this.readUntil(['\n>', '>>'], timeoutMs, LIMITS.promptBytes);
+    } else {
+      await this.readUntil(['>'], timeoutMs, LIMITS.promptBytes);
     }
-    await this.readUntil('>', timeoutMs, LIMITS.promptBytes);
-    // Anything after the prompt is not an answer to our request.
+    this.discard();
+  }
+
+  /** Drops what is buffered: nothing that arrived before a request is its answer. */
+  discard() {
     this.chunks = [];
     this.size = 0;
     this.tail = '';
@@ -217,10 +237,17 @@ export class Session {
     if (timeoutMs < 1) {
       throw new CoolError(ERROR_KINDS.LATE, 'Too late to send', { notSent: true });
     }
-    const reading = this.readUntil('\n>', timeoutMs, LIMITS.responseBytes);
+    this.discard();
+    const reading = this.readUntil(['\n>'], timeoutMs, LIMITS.responseBytes);
     this.written = true;
     this.socket.write(`${command}\n`);
-    let data = await reading;
+    let data;
+    try {
+      data = await reading;
+    } catch (err) {
+      // Written: this request may have reached the bridge.
+      throw Object.assign(err, { sent: true });
+    }
     data = data.slice(0, -1); // the prompt
     const lines = data.split(/\r?\n/);
     // An echo of the command, when the bridge echoes.
@@ -265,8 +292,9 @@ export async function openSession(
 }
 
 /**
- * Connections to one bridge at once: `shared` slots for the polls and the
- * commands, one more that only a stop takes, so it never waits behind them.
+ * Connections to one bridge at once for the polls and the commands other
+ * than a stop (`shared`, 2). Stops have their own lane (one connection more,
+ * see app.js `runStops`): 3 connections in all, as pycoolmasternet.
  */
 export class Slots {
   constructor(shared, { timers = globalThis } = {}) {
@@ -293,14 +321,8 @@ export class Slots {
     };
   }
 
-  /**
-   * -> a release function. `priority`: a stop, never queued. `waitMs`: a
-   * waiter still queued after it leaves the queue, rejected LATE.
-   */
-  acquire({ priority = false, waitMs } = {}) {
-    if (priority) {
-      return Promise.resolve(() => {});
-    }
+  /** -> a release function. `waitMs`: a waiter still queued after it leaves the queue, rejected LATE. */
+  acquire({ waitMs } = {}) {
     if (this.used < this.shared) {
       this.used += 1;
       return Promise.resolve(this.releaser());

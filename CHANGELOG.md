@@ -19,7 +19,10 @@ the notes of the version's GitHub Release.
   the bridge's serial number and of the unit, the option checked again right
   before the write, confirmed only by a read back, "sent, without
   confirmation" otherwise; setpoint bounded to 16-30 °C; a stop never blocked
-  and possible right after a restart.
+  and possible right after a restart, all stops of a bridge through one lane
+  (3 connections at most per bridge).
+- The id of a bridge's devices (serial number, or the `a-<address>` fallback)
+  is chosen once and kept in `/data`: it never changes afterwards.
 - Reads never sooner than the interval (the last attempt kept in `/data`),
   bounded answers, 300 states per minute at most, transport badges, a "Test
   the connection" button.

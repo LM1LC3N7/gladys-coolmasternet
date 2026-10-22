@@ -146,12 +146,10 @@ test('nothing listening: unreachable, nothing sent', async () => {
   });
 });
 
-test('slots: two shared, a stop never waits, a late waiter leaves the queue', async () => {
+test('slots: two shared, a late waiter leaves the queue', async () => {
   const slots = new Slots(2);
   const a = await slots.acquire();
   const b = await slots.acquire();
-  const stop = await slots.acquire({ priority: true });
-  assert.equal(typeof stop, 'function');
   await assert.rejects(slots.acquire({ waitMs: 20 }), (err) => err.kind === ERROR_KINDS.LATE);
   const waiting = slots.acquire();
   a();
@@ -160,4 +158,48 @@ test('slots: two shared, a stop never waits, a late waiter leaves the queue', as
   b();
   c();
   assert.equal(slots.used, 0);
+});
+
+test('wake-up: ">" on connection, then "\r\n>" for the line feed: no answer shifted', async (t) => {
+  const address = await server(t, {
+    reply: (line, socket) => {
+      if (line === 'set') {
+        socket.write('serial number : 283B96001234\r\nOK\r\n>');
+      } else if (line === 'ls2') {
+        socket.write('L1.100 ON 20C 25C Low Cool OK - 1\r\nOK\r\n>');
+      }
+    },
+    onConnect: (socket) => {
+      socket.on('data', (data) => {
+        if (data.toString('latin1') === '\n') {
+          setTimeout(() => socket.write('\r\n>'), 20);
+        }
+      });
+    },
+  });
+  const session = await openSession(address, { wakeup: true, timeoutMs: 2_000 });
+  t.after(() => session.close());
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.match((await session.request('set')).text, /serial number/);
+  assert.match((await session.request('ls2')).text, /^L1\.100 ON/);
+});
+
+test('what arrives before a request is never taken for its answer', async (t) => {
+  const address = await server(t, {
+    reply: (line, socket) => {
+      if (line === 'set') {
+        // A stray prompt, then the answer.
+        socket.write('\r\n>');
+        setTimeout(() => socket.write('version : 1\r\nOK\r\n>'), 30);
+      } else {
+        socket.write('L1.100 ON 20C 25C Low Cool OK - 1\r\nOK\r\n>');
+      }
+    },
+  });
+  const session = await openSession(address);
+  t.after(() => session.close());
+  const first = await session.request('set');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const second = await session.request('ls2');
+  assert.match(second.text, /^L1\.100 ON/, `set answered ${JSON.stringify(first)}`);
 });

@@ -2,10 +2,12 @@
 // What must survive a restart, in /data (the only writable place of the
 // container), readable by the container user only (0600), in one file
 // rewritten as it changes (temporary file, fsync, rename):
-//   coolmasternet-state.json: per address typed in the configuration, the
-//   serial number of the bridge last read there (a stop command can then be
-//   sent after a restart, before the first read, to the right bridge) and the
-//   time of the last read attempt (written before the read, at most once a
+//   coolmasternet-state.json: per address typed in the configuration, the id
+//   chosen for its devices the first time (the serial number, or the
+//   readable fallback "a-<address>" with `fallback`; kept for good, so the
+//   external ids never change), the serial number last read there (the
+//   identity check: a stop command can then be sent after a restart, before
+//   the first read, to the right bridge) and the time of the last read attempt (written before the read, at most once a
 //   minute: a restart never reads sooner than the interval).
 // Nothing secret: the command line has no password.
 // -----------------------------------------------------------------------------
@@ -17,6 +19,7 @@ export const STATE_FILE = '/data/coolmasternet-state.json';
 
 const ADDRESS = /^[a-z0-9.-]{1,253}(?::\d{1,5})?$/;
 const SERIAL = /^[a-z0-9]{4,40}$/;
+const ID = /^[a-z0-9-]{4,80}$/;
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const own = (object, key) =>
@@ -91,7 +94,10 @@ export function normalizeMemory(raw, now) {
       }
       const serial = own(entry, 'serial');
       const attemptAt = own(entry, 'attemptAt');
+      const id = own(entry, 'id');
       bridges.set(key, {
+        id: typeof id === 'string' && ID.test(id) ? id : undefined,
+        fallback: own(entry, 'fallback') === true,
         serial: typeof serial === 'string' && SERIAL.test(serial) ? serial : undefined,
         attemptAt: Number.isFinite(attemptAt) && attemptAt > 0 ? Math.min(attemptAt, now) : 0,
       });
@@ -104,9 +110,14 @@ export function normalizeMemory(raw, now) {
 export function serializeMemory(memory) {
   return {
     bridges: Object.fromEntries(
-      [...memory.bridges].map(([key, { serial, attemptAt }]) => [
+      [...memory.bridges].map(([key, { id, fallback, serial, attemptAt }]) => [
         key,
-        { ...(serial ? { serial } : {}), attemptAt },
+        {
+          ...(id ? { id } : {}),
+          ...(fallback ? { fallback: true } : {}),
+          ...(serial ? { serial } : {}),
+          attemptAt,
+        },
       ]),
     ),
   };

@@ -338,7 +338,8 @@ export function commandValue(key, value) {
     }
     case FEATURES.SETPOINT: {
       const celsiusValue = Math.round(n * 2) / 2;
-      return { setpointC: celsiusValue };
+      // `asked`: the value before rounding, which the bounds are checked on.
+      return { setpointC: celsiusValue, asked: n };
     }
     default:
       return undefined;

@@ -102,7 +102,7 @@ test('commands: strict values, the setpoint in 0.5 °C', () => {
   assert.deepEqual(commandValue('mode', 2), { mode: 'heat' });
   assert.deepEqual(commandValue('fan-speed', 3), { fan: 'med' });
   assert.equal(commandValue('fan-speed', 7), undefined, 'top is shown, never sent');
-  assert.deepEqual(commandValue('target-temperature', 21.3), { setpointC: 21.5 });
+  assert.deepEqual(commandValue('target-temperature', 21.3), { setpointC: 21.5, asked: 21.3 });
   assert.equal(commandValue('target-temperature', Number.NaN), undefined);
   assert.equal(commandValue('room-temperature', 20), undefined);
 });

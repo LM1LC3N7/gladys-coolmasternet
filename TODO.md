@@ -13,15 +13,21 @@
   publisher, config, i18n structure, command rules).
 - Transport: the TCP ASCII command line (port 10102), as the reference. One
   connection per poll or command, closed after (pycoolmasternet opens one
-  per request); at most 2 shared connections per bridge, plus one for a stop
-  (pycoolmasternet allows 3 at once). The REST API of newer bridges is not
-  used.
+  per request); at most 2 shared connections per bridge for the polls and
+  the commands, plus one stop lane (one connection at a time): 3 at most, as
+  pycoolmasternet. The REST API of newer bridges is not used.
+- Wake-up option: after the line feed, the prompt is read until "\n>" or
+  ">>" (as pycoolmasternet); what is buffered is dropped before each request.
 - Identifier rule (frozen, documented in `src/devices.js` and the docs):
   `coolmasternet:<serial>:<l1-100>`; serial = the first `set` key among
   "serial number", "serial", "s/n", "sn", "uid", "mac" with 4-40 letters,
   digits, "-" or ":", lower case, alphanumerics only. Readable fallback when
   none: `a-<address>`. The exact key of real bridges is not publicly
   documented (Home Assistant does not use it): to check on a real bridge.
+  The id chosen at the first read is kept in `/data` per address (`id`,
+  `fallback`) and never changes; a serial seen later only checks the
+  identity (another serial = another bridge, its own devices). Devices
+  already created under the fallback keep it even if /data was lost.
 - Identity checked at every read and before every command (`set`). An
   unreadable serial (with one kept in `/data`) is not "another bridge": the
   states are not shown and commands are refused until a read shows it.
@@ -30,8 +36,18 @@
   Switching on stays behind the option like every command.
 - Commands: one per unit at a time; the stop (off) is never refused for a
   command in flight, cancels the pending one (checked right before its
-  write), takes its own connection, is never skipped as "already off", and
-  works after a restart before the first read (serial kept in `/data`).
+  write), is never skipped as "already off", and works after a restart
+  before the first read (id and serial kept in `/data`). Stops go through
+  one lane per bridge: `set` once, one `off <uid>` per stop (each deadline
+  checked right before its write), one `ls2` read back for the lot; no read
+  before a stop, no refusal on a configuration saved meanwhile. While a
+  stop is in flight, other commands to the unit are refused.
+- An answer without "OK" is "refused by the bridge" (no guard); silence or a
+  closed connection after the write stays "sent, without confirmation".
+- The setpoint bounds are checked on the value asked, before rounding.
+- The time of the last read is kept exactly in memory (a configuration
+  restart waits the full interval); from `/data` only (a container restart),
+  at least a minute after it, since it is written at most once a minute.
 - Confirmation only by a read back equal to the value asked, within 4.3 s of
   the click; otherwise "sent, without confirmation", a guard (90 s) and one
   read 5 s later.

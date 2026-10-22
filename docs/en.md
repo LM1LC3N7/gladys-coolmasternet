@@ -63,16 +63,30 @@ Commands follow strict rules:
   read again 5 s later;
 - the setpoint is bounded to 16-30 °C: a value outside is refused;
 - **switching off** is never blocked by another command in flight: it cancels
-  the command waiting for the same unit, uses a connection of its own and
-  works even right after a restart of the integration.
+  the command waiting for the same unit and works even right after a restart
+  of the integration. Stops go through a lane of their own (one more
+  connection, never behind the reads): a "turn everything off" sends one
+  `off` per unit over a single connection, then reads them all back. The
+  integration never opens more than 3 connections at once to a bridge;
+- while a stop is in flight on a unit, the other commands to that unit are
+  refused ("still running").
+
+On/off is an air-conditioning feature (`air-conditioning/binary`), as for
+MELCloud. Depending on what exposes it (voice assistant, HomeKit, Google Home,
+MCP), a "turn everything off" may switch the units off, and a "turn everything
+on" switch them on if the commands are allowed. The "turn the switches on /
+off" scene actions do not reach them.
 
 ## Device identifiers
 
 Devices are identified by the serial number of the bridge (read with the
-`set` command) and the address of the unit on the bus. Changing the IP
-address of the bridge therefore creates no new devices. If the bridge shows
-no serial number, the integration uses the address typed instead
-("a-192-168-1-50"): the devices then follow that address.
+`set` command) and the address of the unit on the bus. If the bridge shows no
+serial number at its first read, the integration uses the address typed
+instead ("a-192-168-1-50"). The identifier chosen at the first read is kept in
+`/data` for that address and never changes: a serial number that shows up
+later (a firmware update) only checks that it is still the same bridge, and
+creates no new devices. Another bridge at the same address (another serial
+number) gets its own devices.
 
 ## Limits
 
