@@ -1,67 +1,104 @@
-# Template de démonstration
+# CoolMasterNet
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Intégration Gladys non officielle pour les passerelles **CoolMasterNet** de
+CoolAutomation. Une passerelle CoolMasterNet se branche sur le bus d'un système
+de climatisation gainable, VRF ou multi-split (Daikin, Mitsubishi Electric,
+Mitsubishi Heavy, Toshiba, LG, Samsung, Fujitsu, Hitachi, Panasonic…) et en
+pilote toutes les unités intérieures. L'intégration parle à sa ligne de
+commande ASCII, sur votre réseau local (port TCP 10102), sans cloud.
+
+Jamais testé avec un vrai appareil : l'intégration suit le protocole tel que
+la bibliothèque pycoolmasternet-async (utilisée par Home Assistant) le lit et
+l'écrit. Sans lien avec CoolAutomation.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil Gladys par unité intérieure (L1.100, L1.101…), avec :
+
+- **Marche/arrêt**, **Mode** (automatique, froid, chauffage,
+  déshumidification, ventilation seule), **Consigne** (16 à 30 °C),
+  **Ventilation** (automatique, faible, moyenne, forte ; « très faible » et
+  « maximum » sont affichées mais pas envoyées) ;
+- **Volet** (seulement avec l'option « Lire les volets ») ;
+- **Température de la pièce**, **Filtre à nettoyer** (0 ou 1) et **Code
+  d'erreur** (« Aucune erreur » ou le code du fabricant).
+
+Les températures sont toujours en °C dans Gladys ; une passerelle réglée en
+°F est convertie dans les deux sens.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. Donnez une adresse IP fixe à la passerelle dans votre routeur. Vérifiez que
+   son serveur ASCII sur le port 10102 est actif (il l'est par défaut).
+2. Dans Gladys, ouvrez l'intégration **CoolMasterNet**, saisissez l'adresse IP
+   de chaque passerelle (4 au plus, séparées par des virgules ; ajoutez
+   `:port` si vous avez changé le port) et enregistrez.
+3. Les unités apparaissent dans l'onglet **Découverte** : ajoutez-les.
+4. Pour piloter les unités, activez **Autoriser les commandes**. Sans cette
+   option, l'intégration est en lecture seule et refuse toute commande.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Options :
 
-## Actions
+- **Lire les volets** : une requête de plus par unité à chaque lecture, et
+  une fonctionnalité « Volet » sur chaque unité. Toutes les unités n'ont pas
+  de volet motorisé.
+- **Envoyer un retour à la ligne pour réveiller la passerelle** : seulement
+  si la passerelle ne répond pas autrement (certains firmwares n'affichent
+  leur invite qu'après un retour à la ligne).
+- **Intervalle de rafraîchissement** : 60 s par défaut (30 à 600 s).
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+## Sécurité
 
-## Scènes
+La ligne de commande de la passerelle n'a pas de mot de passe : toute
+machine de votre réseau peut la piloter. Gardez la passerelle sur un réseau
+de confiance, jamais exposée à Internet.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Les commandes suivent des règles strictes :
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+- désactivées par défaut ;
+- avant chaque commande, l'intégration relit le numéro de série de la
+  passerelle et l'état de l'unité : si la passerelle n'est pas celle de
+  l'appareil (adresse IP réattribuée) ou si l'état est illisible, rien n'est
+  envoyé ;
+- l'option est revérifiée juste avant l'envoi ; une commande qui ne peut pas
+  partir dans les 3,5 s est refusée sans être envoyée ;
+- une commande n'est confirmée que si l'état relu montre la valeur demandée ;
+  sinon Gladys affiche « Commande envoyée, sans confirmation » et l'unité est
+  relue 5 s plus tard ;
+- la consigne est bornée de 16 à 30 °C : une valeur hors bornes est refusée ;
+- l'**arrêt** n'est jamais bloqué par une autre commande en cours : il annule
+  la commande en attente pour la même unité, passe par sa propre connexion et
+  fonctionne même juste après un redémarrage de l'intégration.
 
-## Tableau de bord
+## Identifiants des appareils
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+Les appareils sont identifiés par le numéro de série de la passerelle (lu par
+la commande `set`) et l'adresse de l'unité sur le bus. Changer l'adresse IP
+de la passerelle ne crée donc pas de nouveaux appareils. Si la passerelle
+n'affiche aucun numéro de série, l'intégration utilise à la place l'adresse
+saisie (« a-192-168-1-50 ») : les appareils suivent alors cette adresse.
+
+## Limites
+
+- Jamais testé avec un vrai appareil.
+- 4 passerelles et 64 unités par passerelle au plus.
+- Le nom exact du champ « numéro de série » de la commande `set` n'est pas
+  documenté publiquement : l'intégration accepte « serial number »,
+  « serial », « S/N », « SN », « UID » et « MAC ».
+- La remise à zéro du filtre (`filt`) et l'envoi d'une température ambiante
+  (`feed`) ne sont pas proposés.
 
 ## Dépannage
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **Pas de réponse** : vérifiez l'adresse, le port et que le serveur ASCII
+  est actif ; essayez l'option « Envoyer un retour à la ligne ».
+- **Numéro de série illisible** : les états ne sont pas affichés et les
+  commandes sont refusées jusqu'à la lecture suivante.
+- Le bouton **Tester la connexion** ne relit jamais une passerelle plus tôt
+  que l'intervalle : il indique quand aura lieu la prochaine lecture.
+
+## Crédits
+
+Logique de protocole portée de
+[pycoolmasternet-async](https://github.com/OnFreund/pycoolmasternet-async)
+(MIT, On Freund, Steven Grimm). Voir `THIRD_PARTY_NOTICES.md`.

@@ -1,8 +1,8 @@
 {
-  "name": "gladys-integration-template-js",
-  "version": "1.0.0",
+  "name": "gladys-coolmasternet",
+  "version": "0.1.0",
   "private": true,
-  "description": "Official starter template to build an external integration for Gladys Assistant with the JavaScript SDK.",
+  "description": "Gladys Assistant external integration for CoolMasterNet bridges (CoolAutomation): every indoor unit of a ducted or VRF air-conditioning system (on/off, mode, setpoint, fan, louver, room temperature, filter, error code) over the local command line of the bridge. Unofficial, not affiliated with CoolAutomation.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test"
+    "test": "node --test",
+    "audit": "npm audit --omit=dev",
+    "cover": "node scripts/cover.mjs cover.png",
+    "validate:manifest": "npx --yes github:GladysAssistant/integration-store ."
   },
   "engines": {
     "node": ">=22"

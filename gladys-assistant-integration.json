@@ -1,177 +1,165 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "CoolMasterNet",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Ducted and VRF air conditioners through a CoolMasterNet bridge (CoolAutomation), locally.",
+    "fr": "Climatisations gainables et VRF par une passerelle CoolMasterNet (CoolAutomation), en local."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-coolmasternet:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-coolmasternet/main/cover.png",
+  "categories": ["climate"],
+  "transports": ["local"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your CoolMasterNet bridges",
+        "fr": "Vos passerelles CoolMasterNet"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows in Gladys every indoor unit of a ducted, VRF or multi-split system (Daikin, Mitsubishi, Toshiba, LG, Samsung…) wired to a CoolMasterNet bridge of CoolAutomation, through the ASCII command line of the bridge on your network (TCP port 10102), without any cloud: on/off, mode, setpoint, fan speed, louver, room temperature, filter sign and error code. Enter the IP address of each bridge (give it a fixed address in your router), save, then add the units from the Discovery tab. Gladys controls them only if you allow the commands below. The command line has no password: keep the bridge on a trusted network. Never tested with a real device. Not affiliated with CoolAutomation.",
+        "fr": "Affiche dans Gladys chaque unité intérieure d'un système gainable, VRF ou multi-split (Daikin, Mitsubishi, Toshiba, LG, Samsung…) relié à une passerelle CoolMasterNet de CoolAutomation, par la ligne de commande ASCII de la passerelle sur votre réseau (port TCP 10102), sans cloud : marche/arrêt, mode, consigne, ventilation, volet, température de la pièce, filtre et code d'erreur. Saisissez l'adresse IP de chaque passerelle (donnez-lui une adresse fixe dans votre routeur), enregistrez, puis ajoutez les unités depuis l'onglet Découverte. Gladys ne les commande que si vous autorisez les commandes ci-dessous. La ligne de commande n'a pas de mot de passe : gardez la passerelle sur un réseau de confiance. Jamais testé avec un vrai appareil. Sans lien avec CoolAutomation."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-coolmasternet/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-coolmasternet/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "addresses",
+      "type": "string",
+      "label": {
+        "en": "IP addresses of the CoolMasterNet bridges",
+        "fr": "Adresses IP des passerelles CoolMasterNet"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
+      "description": {
+        "en": "Separated by commas (4 at most). IPv4 addresses or host names; port 10102 unless you add one.",
+        "fr": "Séparées par des virgules (4 au plus). Adresses IPv4 ou noms d'hôte ; port 10102 sauf si vous en ajoutez un."
+      },
+      "placeholder": {
+        "en": "192.168.1.50",
+        "fr": "192.168.1.50"
+      },
       "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "default": ""
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "key": "allow_commands",
+      "type": "boolean",
+      "label": {
+        "en": "Allow the commands",
+        "fr": "Autoriser les commandes"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "description": {
+        "en": "Off by default: read only, every command refused. On: Gladys may switch the units on and off and change their mode, setpoint (16 to 30 °C), fan and louver.",
+        "fr": "Désactivé par défaut : lecture seule, toute commande refusée. Activé : Gladys peut allumer et éteindre les unités, changer leur mode, leur consigne (16 à 30 °C), leur ventilation et leur volet."
+      },
+      "required": false,
+      "default": false
     },
     {
-      "key": "unit",
+      "key": "swing_support",
+      "type": "boolean",
+      "label": {
+        "en": "Read the louvers",
+        "fr": "Lire les volets"
+      },
+      "description": {
+        "en": "Off by default. On: one more request per unit at each read, and a louver feature on each unit (not every unit has one).",
+        "fr": "Désactivé par défaut. Activé : une requête de plus par unité à chaque lecture, et une fonctionnalité volet sur chaque unité (toutes n'en ont pas)."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "wakeup_prompt",
+      "type": "boolean",
+      "label": {
+        "en": "Send a line feed to wake the bridge",
+        "fr": "Envoyer un retour à la ligne pour réveiller la passerelle"
+      },
+      "description": {
+        "en": "Only if the bridge does not answer otherwise: some firmware show their prompt only after a line feed.",
+        "fr": "Seulement si la passerelle ne répond pas autrement : certains firmwares n'affichent leur invite qu'après un retour à la ligne."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "poll_interval",
+      "type": "number",
+      "label": {
+        "en": "Refresh interval (s)",
+        "fr": "Intervalle de rafraîchissement (s)"
+      },
+      "description": {
+        "en": "How often each bridge is read, in seconds.",
+        "fr": "Fréquence de lecture de chaque passerelle, en secondes."
+      },
+      "required": false,
+      "default": 60,
+      "min": 30,
+      "max": 600
+    },
+    {
+      "key": "language",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Used for the names of the devices and features added from now on, for the options and for the command errors.",
+        "fr": "Sert aux noms des appareils et des fonctionnalités ajoutés désormais, aux options et aux erreurs des commandes."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
       },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
       "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+        "en": "Reads each bridge whose read is due (never sooner than the interval) and shows the result.",
+        "fr": "Lit chaque passerelle dont la lecture est due (jamais plus tôt que l'intervalle) et affiche le résultat."
       },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+      "timeout_seconds": 90
     }
   ]
 }

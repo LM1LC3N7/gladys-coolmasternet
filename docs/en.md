@@ -1,61 +1,100 @@
-# Demo Devices Template
+# CoolMasterNet
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Unofficial Gladys integration for the **CoolMasterNet** bridges of
+CoolAutomation. A CoolMasterNet bridge is wired to the bus of a ducted, VRF or
+multi-split air-conditioning system (Daikin, Mitsubishi Electric, Mitsubishi
+Heavy, Toshiba, LG, Samsung, Fujitsu, Hitachi, Panasonic…) and controls all
+its indoor units. The integration talks to its ASCII command line, on your
+local network (TCP port 10102), without any cloud.
+
+Never tested with a real device: the integration follows the protocol as the
+pycoolmasternet-async library (used by Home Assistant) reads and writes it.
+Not affiliated with CoolAutomation.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One Gladys device per indoor unit (L1.100, L1.101…), with:
 
-## Configuration
+- **On/off**, **Mode** (automatic, cooling, heating, drying, fan only),
+  **Setpoint** (16 to 30 °C), **Fan speed** (automatic, low, medium, high;
+  "very low" and "top" are shown but never sent);
+- **Louver** (only with the "Read the louvers" option);
+- **Room temperature**, **Filter to clean** (0 or 1) and **Error code** ("No
+  error" or the manufacturer's code).
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+Temperatures are always in °C in Gladys; a bridge set to °F is converted both
+ways.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+## Setup
 
-## Actions
+1. Give the bridge a fixed IP address in your router. Check that its ASCII
+   server on port 10102 is on (it is by default).
+2. In Gladys, open the **CoolMasterNet** integration, enter the IP address of
+   each bridge (4 at most, separated by commas; add `:port` if you changed
+   the port) and save.
+3. The units show up in the **Discovery** tab: add them.
+4. To control the units, turn on **Allow the commands**. Without it, the
+   integration is read only and refuses every command.
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+Options:
 
-## Scenes
+- **Read the louvers**: one more request per unit at each read, and a
+  "Louver" feature on each unit. Not every unit has a motorized louver.
+- **Send a line feed to wake the bridge**: only if the bridge does not answer
+  otherwise (some firmware show their prompt only after a line feed).
+- **Refresh interval**: 60 s by default (30 to 600 s).
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+## Security
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+The command line of the bridge has no password: any machine of your network
+can control it. Keep the bridge on a trusted network, never exposed to the
+Internet.
 
-## Dashboard
+Commands follow strict rules:
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+- off by default;
+- before each command, the integration reads the serial number of the bridge
+  and the state of the unit again: if the bridge is not the device's (IP
+  address given to another one) or the state cannot be read, nothing is sent;
+- the option is checked again right before sending; a command that cannot
+  leave within 3.5 s is refused unsent;
+- a command is confirmed only when the state read back shows the value asked;
+  otherwise Gladys shows "Command sent, without confirmation" and the unit is
+  read again 5 s later;
+- the setpoint is bounded to 16-30 °C: a value outside is refused;
+- **switching off** is never blocked by another command in flight: it cancels
+  the command waiting for the same unit, uses a connection of its own and
+  works even right after a restart of the integration.
+
+## Device identifiers
+
+Devices are identified by the serial number of the bridge (read with the
+`set` command) and the address of the unit on the bus. Changing the IP
+address of the bridge therefore creates no new devices. If the bridge shows
+no serial number, the integration uses the address typed instead
+("a-192-168-1-50"): the devices then follow that address.
+
+## Limits
+
+- Never tested with a real device.
+- 4 bridges and 64 units per bridge at most.
+- The exact name of the serial number field of the `set` command is not
+  publicly documented: the integration takes "serial number", "serial",
+  "S/N", "SN", "UID" and "MAC".
+- The filter reset (`filt`) and the ambient temperature hint (`feed`) are not
+  offered.
 
 ## Troubleshooting
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **No answer**: check the address, the port and that the ASCII server is on;
+  try the "Send a line feed" option.
+- **Serial number unreadable**: the states are not shown and commands are
+  refused until the next read.
+- The **Test the connection** button never reads a bridge sooner than the
+  interval: it tells when the next read will happen.
+
+## Credits
+
+Protocol logic ported from
+[pycoolmasternet-async](https://github.com/OnFreund/pycoolmasternet-async)
+(MIT, On Freund, Steven Grimm). See `THIRD_PARTY_NOTICES.md`.

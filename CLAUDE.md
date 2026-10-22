@@ -31,18 +31,27 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
+index.js                          SDK wiring only (src/handlers.js), before connect()
+src/handlers.js                   the SDK handlers, shared with the end-to-end tests
+src/app.js                        the integration: reads, devices, states, badges, commands
+src/coolmaster/client.js          TCP session to a bridge (bounded reads), connection slots
+src/coolmaster/protocol.js        the ASCII protocol, pure (set, ls2/stat2, query, commands)
+src/devices.js                    one unit -> one Gladys device; external ids (frozen rule)
+src/publisher.js                  states to Gladys within 300 per minute
+src/store.js                      /data: serial per address, time of the last read attempt
 src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
+src/i18n.js                       runtime texts (English and French)
 gladys-assistant-integration.json manifest: name, config_schema, actions, image...
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+test/                             node --test: fake Gladys + fake bridges, a real local TCP server
+scripts/cover.mjs                 generates cover.png (800x534, plain Node)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
+
+Logic ported from pycoolmasternet-async (MIT): keep `THIRD_PARTY_NOTICES.md`
+up to date. Commands stay off by default; the stop (off) is never blocked.
+Reads are never sooner than the interval. The command line of the bridge has
+no password: the docs say to keep it on a trusted network.
 
 ## Rules
 
