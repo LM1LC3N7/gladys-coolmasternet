@@ -995,44 +995,64 @@ export class CoolMasterApp {
       }
       return;
     }
-    const written = [];
-    while (queue.length > 0 && !session.closed) {
-      const job = queue.shift();
+    // Every stop of the queue is written at once (each deadline and the
+    // option checked right before its own write), then the answers are read
+    // in order: a slow or silent answer never holds the next stop back. The
+    // read back of the lot (one `ls2`) confirms them.
+    const jobs = [];
+    for (const job of queue.splice(0)) {
       const check = this.identity(bridge, job.target.bridge, serial);
-      if (check !== 'ok') {
+      if (check === 'ok') {
+        jobs.push(job);
+      } else {
         job.reject(this.refusal(check === 'other' ? ERRORS.otherBridge : ERRORS.identityUnknown));
-        continue;
       }
-      this.logger.info(`CoolMasterNet ${bridge.key}: ${job.target.uid} power -> off`);
-      try {
-        const answer = await session.request(`off ${job.target.uid}`, {
-          timeoutMs: Math.min(TIMINGS.requestTimeout, job.answerBy - this.now()),
-          beforeSend: () => {
-            if (!this.config.allowCommands) {
-              throw this.refusal(ERRORS.disabled);
-            }
-            if (this.now() > job.sendBy) {
-              throw this.refusal(ERRORS.tooSlow);
-            }
-          },
-        });
+    }
+    if (jobs.length === 0) {
+      return;
+    }
+    this.logger.info(
+      `CoolMasterNet ${bridge.key}: off -> ${jobs.map((job) => job.target.uid).join(', ')}`,
+    );
+    // The answers by the earliest answer deadline, leaving time for the read back.
+    const answersBy = Math.min(...jobs.map((job) => job.answerBy)) - TIMINGS.stopReadBack;
+    const results = await session.pipeline(
+      jobs.map((job) => `off ${job.target.uid}`),
+      {
+        beforeEach: (i) => {
+          if (!this.config.allowCommands) {
+            throw this.refusal(ERRORS.disabled);
+          }
+          if (this.now() > jobs[i].sendBy) {
+            throw this.refusal(ERRORS.tooSlow);
+          }
+        },
+        timeoutMs: () => Math.min(TIMINGS.requestTimeout, answersBy - this.now()),
+      },
+    );
+    const written = [];
+    const unanswered = [];
+    for (const [i, job] of jobs.entries()) {
+      const { answer, error } = results[i];
+      if (answer) {
         if (answer.ok) {
           written.push(job);
         } else {
           job.reject(this.refusal(ERRORS.refused));
         }
-      } catch (err) {
-        if (err.beforeSend) {
-          job.reject(err);
-        } else if (!err.sent) {
-          job.reject(this.refusal(ERRORS.notSent(errorReason(err))));
-        } else if (err.kind === ERROR_KINDS.REJECTED) {
-          job.reject(this.refusal(ERRORS.refused));
-        } else {
-          // A silence or a closed connection after the write: it may have been applied.
-          this.stopUnconfirmed(bridge, job, errorReason(err));
-        }
+      } else if (error.beforeSend) {
+        job.reject(error);
+      } else if (!error.sent) {
+        job.reject(this.refusal(ERRORS.notSent(errorReason(error))));
+      } else if (error.kind === ERROR_KINDS.REJECTED) {
+        job.reject(this.refusal(ERRORS.refused));
+      } else {
+        // Written, no answer: it may have been applied; no read back on a broken session.
+        unanswered.push([job, errorReason(error)]);
       }
+    }
+    for (const [job, reason] of unanswered) {
+      this.stopUnconfirmed(bridge, job, reason);
     }
     if (written.length === 0) {
       return;

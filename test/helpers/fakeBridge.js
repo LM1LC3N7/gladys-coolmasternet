@@ -47,6 +47,10 @@ export function bridge(over = {}) {
     delays: {},
     /** command words never answered. */
     silent: [],
+    /** exact line -> ms before answering it ("off L1.100"). */
+    lineDelays: {},
+    /** exact lines after which the command line hangs: nothing more is answered. */
+    hang: [],
     /** false: a command answers OK and changes nothing. */
     applies: true,
     /** Shows ">" on connection and answers a lone line feed with "\r\n>" again. */
@@ -143,6 +147,10 @@ export function fakeBridges(map = { [HOST]: bridge() }) {
       const handlers = { data: [], close: [] };
       let buffer = '';
       let closed = false;
+      // The command line answers one line after the other: an answer never
+      // overtakes the previous one.
+      let lastAt = 0;
+      let hung = false;
       server.open += 1;
       server.maxOpen = Math.max(server.maxOpen, server.open);
       const emit = (text) => {
@@ -175,15 +183,21 @@ export function fakeBridges(map = { [HOST]: bridge() }) {
             }
             server.lines.push({ host, line, at: Date.now() });
             const word = line.split(' ')[0];
-            if (b.silent.includes(word)) {
+            if (hung || b.silent.includes(word)) {
+              continue;
+            }
+            if (b.hang.includes(line)) {
+              hung = true;
               continue;
             }
             const error = b.errors[word];
             const reply =
               (b.echo ? `${line}\r\n` : '') + (error ? `${error}\r\n>` : server.answer(b, line));
-            const delay = b.delays[word];
-            if (delay) {
-              setTimeout(() => emit(reply), delay);
+            const delay = b.lineDelays[line] ?? b.delays[word] ?? 0;
+            const at = Math.max(Date.now(), lastAt) + delay;
+            lastAt = at;
+            if (at > Date.now()) {
+              setTimeout(() => emit(reply), at - Date.now());
             } else {
               setImmediate(() => emit(reply));
             }

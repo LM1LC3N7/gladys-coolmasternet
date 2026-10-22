@@ -38,8 +38,10 @@
   command in flight, cancels the pending one (checked right before its
   write), is never skipped as "already off", and works after a restart
   before the first read (id and serial kept in `/data`). Stops go through
-  one lane per bridge: `set` once, one `off <uid>` per stop (each deadline
-  checked right before its write), one `ls2` read back for the lot; no read
+  one lane per bridge: `set` once, every `off <uid>` of the queue written at
+  once (each deadline checked right before its write; the command line
+  answers lines in turn), the answers read in order until the earliest
+  answer deadline minus 400 ms, one `ls2` read back for the lot; no read
   before a stop, no refusal on a configuration saved meanwhile. While a
   stop is in flight, other commands to the unit are refused.
 - An answer without "OK" is "refused by the bridge" (no guard); silence or a

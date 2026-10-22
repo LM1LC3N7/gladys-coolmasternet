@@ -65,8 +65,10 @@ Commands follow strict rules:
 - **switching off** is never blocked by another command in flight: it cancels
   the command waiting for the same unit and works even right after a restart
   of the integration. Stops go through a lane of their own (one more
-  connection, never behind the reads): a "turn everything off" sends one
-  `off` per unit over a single connection, then reads them all back. The
+  connection, never behind the reads): a "turn everything off" writes one
+  `off` per unit at once over a single connection (each deadline checked
+  right before its write), reads the answers in order, then reads them all
+  back. A slow answer never delays the writes of the next stops. The
   integration never opens more than 3 connections at once to a bridge;
 - while a stop is in flight on a unit, the other commands to that unit are
   refused ("still running").
@@ -92,6 +94,10 @@ number) gets its own devices.
 
 - Never tested with a real device.
 - 4 bridges and 64 units per bridge at most.
+- A "turn everything off" writes every stop at once, but Gladys waits only
+  5 s for the ack: if the bridge takes more than about 3.9 s to answer all
+  the `off` lines, the stops are sent but reported "sent, without
+  confirmation", and the state is read again 5 s later.
 - The exact name of the serial number field of the `set` command is not
   publicly documented: the integration takes "serial number", "serial",
   "S/N", "SN", "UID" and "MAC".

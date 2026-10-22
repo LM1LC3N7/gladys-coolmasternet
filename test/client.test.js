@@ -185,21 +185,23 @@ test('wake-up: ">" on connection, then "\r\n>" for the line feed: no answer shif
 });
 
 test('what arrives before a request is never taken for its answer', async (t) => {
+  let peer;
   const address = await server(t, {
+    onConnect: (socket) => {
+      socket.setNoDelay(true);
+      peer = socket;
+    },
     reply: (line, socket) => {
-      if (line === 'set') {
-        // A stray prompt, then the answer.
-        socket.write('\r\n>');
-        setTimeout(() => socket.write('version : 1\r\nOK\r\n>'), 30);
-      } else {
-        socket.write('L1.100 ON 20C 25C Low Cool OK - 1\r\nOK\r\n>');
-      }
+      socket.write(line === 'set' ? 'version : 1\r\nOK\r\n>' : 'OK\r\n>');
     },
   });
   const session = await openSession(address);
   t.after(() => session.close());
-  const first = await session.request('set');
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  const second = await session.request('ls2');
-  assert.match(second.text, /^L1\.100 ON/, `set answered ${JSON.stringify(first)}`);
+  // A stray prompt after the first one, received before the request.
+  peer.write('\r\n>');
+  while (session.size === 0) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const answer = await session.request('set');
+  assert.deepEqual(answer, { text: 'version : 1', ok: true });
 });

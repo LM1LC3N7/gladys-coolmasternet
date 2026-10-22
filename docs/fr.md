@@ -70,7 +70,10 @@ Les commandes suivent des règles strictes :
   la commande en attente pour la même unité et fonctionne même juste après un
   redémarrage de l'intégration. Les arrêts passent par une voie à eux (une
   connexion de plus, jamais derrière les lectures) : un « tout éteindre »
-  envoie un `off` par unité sur une seule connexion, puis relit l'ensemble.
+  écrit d'un coup un `off` par unité sur une seule connexion (chaque échéance
+  vérifiée juste avant son écriture), lit les réponses dans l'ordre, puis
+  relit l'ensemble. Une réponse lente ne retarde jamais l'écriture des arrêts
+  suivants.
   L'intégration n'ouvre jamais plus de 3 connexions à la fois vers une
   passerelle ;
 - tant qu'un arrêt est en cours sur une unité, les autres commandes vers
@@ -99,6 +102,10 @@ propres appareils.
 
 - Jamais testé avec un vrai appareil.
 - 4 passerelles et 64 unités par passerelle au plus.
+- Un « tout éteindre » écrit tous les arrêts tout de suite, mais Gladys
+  n'attend l'acquittement que 5 s : si la passerelle met plus d'environ 3,9 s
+  à répondre à tous les `off`, les arrêts sont bien envoyés mais annoncés
+  « envoyée, sans confirmation », et l'état est relu 5 s plus tard.
 - Le nom exact du champ « numéro de série » de la commande `set` n'est pas
   documenté publiquement : l'intégration accepte « serial number »,
   « serial », « S/N », « SN », « UID » et « MAC ».

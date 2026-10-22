@@ -248,8 +248,12 @@ export class Session {
       // Written: this request may have reached the bridge.
       throw Object.assign(err, { sent: true });
     }
-    data = data.slice(0, -1); // the prompt
-    const lines = data.split(/\r?\n/);
+    return this.parse(command, data);
+  }
+
+  /** One answer (up to its prompt) -> { text, ok }; REJECTED (sent) on an error answer. */
+  parse(command, raw) {
+    const lines = raw.slice(0, -1).split(/\r?\n/); // without the prompt
     // An echo of the command, when the bridge echoes.
     if (lines[0]?.trim() === command) {
       lines.shift();
@@ -263,9 +267,64 @@ export class Session {
     if (/Unknown command|Unsupported Feature/i.test(text)) {
       throw new CoolError(ERROR_KINDS.REJECTED, 'Rejected by the bridge', {
         unknownCommand: /Unknown command/i.test(text),
+        sent: true,
       });
     }
     return { text, ok };
+  }
+
+  /**
+   * Several commands written at once, then their answers read in order (the
+   * command line answers each line in turn). `beforeEach(i)` runs right
+   * before the write of command i: what it throws skips it (`notSent`).
+   * `timeoutMs()`: the time left for each answer. -> one result per command:
+   * { answer } or { error } (`notSent`, or `sent` once written). After a
+   * silence or a closed connection, the answers still missing are errors
+   * marked `sent`.
+   */
+  async pipeline(commands, { beforeEach, timeoutMs }) {
+    const results = new Array(commands.length);
+    const written = [];
+    this.discard();
+    for (const [i, command] of commands.entries()) {
+      if (this.closed) {
+        results[i] = {
+          error: new CoolError(ERROR_KINDS.CLOSED, 'Connection closed', { notSent: true }),
+        };
+        continue;
+      }
+      try {
+        beforeEach?.(i);
+      } catch (err) {
+        results[i] = { error: Object.assign(err, { notSent: true, beforeSend: true }) };
+        continue;
+      }
+      this.written = true;
+      this.socket.write(`${command}\n`);
+      written.push(i);
+    }
+    let broken;
+    for (const i of written) {
+      if (broken) {
+        results[i] = { error: new CoolError(broken.kind, broken.message, { sent: true }) };
+        continue;
+      }
+      try {
+        const left = timeoutMs();
+        if (left < 1) {
+          throw new CoolError(ERROR_KINDS.TIMEOUT, 'No answer in time');
+        }
+        const data = await this.readUntil(['\n>'], left, LIMITS.responseBytes);
+        results[i] = { answer: this.parse(commands[i], data) };
+      } catch (err) {
+        if (err.kind !== ERROR_KINDS.REJECTED) {
+          broken = err;
+          this.close();
+        }
+        results[i] = { error: Object.assign(err, { sent: true }) };
+      }
+    }
+    return results;
   }
 }
 

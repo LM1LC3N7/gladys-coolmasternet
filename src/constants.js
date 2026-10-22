@@ -108,6 +108,8 @@ export const TIMINGS = {
    */
   commandSendBy: 3_500,
   commandAnswerBy: 4_300,
+  /** Stops: the time kept for the read back of the lot, after the answers. */
+  stopReadBack: 400,
   /** One read of the state after a command that was not confirmed. */
   followUp: 5 * SECOND,
   /** A command not confirmed keeps its guard until the state shows it, or 90 s. */

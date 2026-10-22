@@ -672,3 +672,80 @@ test('M8: the "another bridge" note goes once the new serial is the kept one', a
   await advance(MINUTE);
   assert.doesNotMatch(message(gladys).en, /Another bridge/);
 });
+
+// --- Approval 1 ----------------------------------------------------------------
+
+/** When each `off` was written, in ms after `start`. */
+const offTimes = (server, start) => server.commands('off').map((l) => [l.line, l.at - start]);
+
+test('A1 (R10): a slow answer to one stop never holds the next one back', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(2) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  server.bridges[HOST].lineDelays = { 'off L1.100': 3_200 };
+  const start = Date.now();
+  const acks = stopAll(gladys, 2);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  const times = offTimes(server, start);
+  assert.equal(times.length, 2);
+  assert.ok(
+    times.every(([, ms]) => ms < 3_500),
+    JSON.stringify(times),
+  );
+  assert.ok(
+    results.every((r) => r.success),
+    results.map(failure).join(' | '),
+  );
+});
+
+test('A1 (R10b): a silent bridge after the first stop: both written, both "without confirmation"', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(2) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  server.bridges[HOST].hang = ['off L1.100'];
+  const start = Date.now();
+  const acks = stopAll(gladys, 2);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  const times = offTimes(server, start);
+  assert.deepEqual(
+    times.map(([line]) => line),
+    ['off L1.100', 'off L1.101'],
+  );
+  assert.ok(times.every(([, ms]) => ms < 3_500));
+  for (const r of results) {
+    assert.equal(r.success, false);
+    assert.match(failure(r), /sans confirmation/);
+  }
+});
+
+test('A1 (R14): forty stops, 150 ms per answer: all written within 3.5 s, 3 connections at most', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(40) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  server.bridges[HOST].delays = { off: 150 };
+  const start = Date.now();
+  const acks = stopAll(gladys, 40);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  const times = offTimes(server, start);
+  assert.equal(times.length, 40);
+  assert.ok(times.every(([, ms]) => ms < 3_500));
+  assert.ok(server.maxOpen <= 3, `maxOpen ${server.maxOpen}`);
+  // Exact acks: confirmed only by the read back, else "sent, without confirmation".
+  for (const r of results) {
+    assert.ok(r.success || /sans confirmation/.test(failure(r)), failure(r));
+  }
+});
+
+test('A1: forty stops answered at once are all confirmed by one read back', async (t) => {
+  const server = fakeBridges({ [HOST]: bigBridge(40) });
+  const { gladys, advance } = await setup(t, { server, config: ALLOWED });
+  const acks = stopAll(gladys, 40);
+  await settle();
+  await advance(6 * SECOND);
+  const results = await Promise.all(acks);
+  assert.ok(results.every((r) => r.success));
+  assert.equal(server.commands('off').length, 40);
+});
