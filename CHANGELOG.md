@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-22
+
 ### Added
 
 - CoolMasterNet bridges (CoolAutomation) over their local ASCII command line
@@ -29,4 +31,5 @@ the notes of the version's GitHub Release.
 - Documentation in English and French, third-party notices for
   pycoolmasternet-async (MIT).
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-coolmasternet/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-coolmasternet/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-coolmasternet/releases/tag/v0.1.1
