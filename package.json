@@ -1,6 +1,6 @@
 {
   "name": "gladys-coolmasternet",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Gladys Assistant external integration for CoolMasterNet bridges (CoolAutomation): every indoor unit of a ducted or VRF air-conditioning system (on/off, mode, setpoint, fan, louver, room temperature, filter, error code) over the local command line of the bridge. Unofficial, not affiliated with CoolAutomation.",
   "type": "module",
