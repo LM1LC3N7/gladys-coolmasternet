@@ -74,7 +74,9 @@
 ## Next
 
 - Check on a real bridge: the `set` key of the serial number, the echo, the
-  fan words, the state right after a command (is the read back immediate?).
+  fan words, the state right after a command (is the read back immediate?),
+  and that it accepts several lines sent at once (the stop lane writes every
+  `off` before reading the answers, one after the other).
 - A "Reset the filter" button (`filt <uid>`), off by default.
 - The demand flag (`ls2`) as a read-only sensor.
 - The REST API (port 10103) of newer bridges, if useful.
@@ -82,5 +84,7 @@
 ## Not verified
 
 - Never tested with a real device.
+- That a real bridge accepts several command lines sent at once and answers
+  them in order (assumed by the stop lane; tested only against a fake).
 - No end-to-end test in a container (Docker not installed on the dev PC).
 - The store validator was not run by the development agent.

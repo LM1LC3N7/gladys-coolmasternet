@@ -199,8 +199,10 @@ test('what arrives before a request is never taken for its answer', async (t) =>
   t.after(() => session.close());
   // A stray prompt after the first one, received before the request.
   peer.write('\r\n>');
-  while (session.size === 0) {
-    await new Promise((resolve) => setImmediate(resolve));
+  // Bounded: 200 turns of 5 ms at most, then the test fails instead of hanging.
+  for (let turn = 0; session.size === 0; turn += 1) {
+    assert.ok(turn < 200, 'the stray prompt never arrived');
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   const answer = await session.request('set');
   assert.deepEqual(answer, { text: 'version : 1', ok: true });

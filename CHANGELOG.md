@@ -10,6 +10,12 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- TODO: check on a real bridge that it accepts several command lines sent at
+  once (the stop lane relies on it).
+- A test waiting for a stray prompt is bounded and fails instead of hanging.
+
 ## [0.1.1] - 2026-10-22
 
 ### Added
