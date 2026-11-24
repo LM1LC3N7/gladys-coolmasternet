@@ -97,3 +97,7 @@
   them in order (assumed by the stop lane; tested only against a fake).
 - No end-to-end test in a container (Docker not installed on the dev PC).
 - The store validator was not run by the development agent.
+
+## Next patch
+
+- Migration review minors: see `_lots/migration-reviews/w10-gladys-coolmasternet-r2.md`.
