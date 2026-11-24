@@ -2,6 +2,14 @@
 
 ## Decisions
 
+- **SDK `^0.16.1`** (2026-11-24, migration wave 10): it adds the ai, tts and
+  music types, and its fake Gladys refuses a feature without a name, boolean
+  `read_only`/`has_feedback` or finite `min`/`max`; no effect here
+  (`poll_frequency` unused, the devices carry `should_poll: false`). Every
+  feature already conformed; `test/helpers/coreFeature.js` now checks each one
+  against the core model (test/manifest.test.js). `npm test` runs with
+  `--test-timeout=60000`. `keywords`, `countries` and `gladys_version >= 5.3.0`
+  wait until Gladys 5.3 is widespread.
 - Version 0.1.0 set by hand in `package.json`, `package-lock.json`, the
   manifest and the `docker_image` tag: the first patch release gives 0.1.1.
   The manifest test checks the form and the agreement, never a fixed value.

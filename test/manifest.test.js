@@ -8,7 +8,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DEFAULT_CONFIG } from '../src/config.js';
+import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 import { ACTIONS, POLL_INTERVAL, SETPOINT } from '../src/constants.js';
+import { buildDevice, KEYS } from '../src/devices.js';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -123,4 +126,16 @@ test('the actions are the ones the code handles', () => {
   assert.equal(manifest.scene_actions, undefined);
   assert.equal(manifest.scene_triggers, undefined);
   assert.equal(manifest.widgets, undefined);
+});
+
+test('every feature of every unit has a numeric min and max and the other core fields', () => {
+  const gladys = createFakeGladys({ selector: 'coolmasternet' });
+  let features = 0;
+  for (const swing of [true, false]) {
+    for (const language of ['en', 'fr']) {
+      const unit = { bridgeId: '283b960001', uid: 'L1.100', version: '1.2.3', swing };
+      features += assertCoreDevice(buildDevice(gladys, unit, { language }), `swing ${swing}`);
+    }
+  }
+  assert.equal(features, 2 * KEYS.length + 2 * (KEYS.length - 1));
 });
