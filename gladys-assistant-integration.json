@@ -67,8 +67,8 @@
         "fr": "Autoriser les commandes"
       },
       "description": {
-        "en": "Off by default: read only, every command refused. On: Gladys may switch the units on and off and change their mode, setpoint (16 to 30 °C), fan and louver.",
-        "fr": "Désactivé par défaut : lecture seule, toute commande refusée. Activé : Gladys peut allumer et éteindre les unités, changer leur mode, leur consigne (16 à 30 °C), leur ventilation et leur volet."
+        "en": "Off by default: read only, except switching a unit off (always allowed). On: Gladys may also switch the units on and change their mode, setpoint (16 to 30 °C), fan and louver.",
+        "fr": "Désactivé par défaut : lecture seule, sauf l'arrêt d'une unité (toujours permis). Activé : Gladys peut aussi allumer les unités, changer leur mode, leur consigne (16 à 30 °C), leur ventilation et leur volet."
       },
       "required": false,
       "default": false

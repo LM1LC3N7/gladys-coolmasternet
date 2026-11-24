@@ -861,7 +861,8 @@ export class CoolMasterApp {
           : ERRORS.badValue,
       );
     }
-    if (!this.config.allowCommands) {
+    // Switching off is protective: never behind the option (switching on is).
+    if (!this.config.allowCommands && change.on !== false) {
       throw this.refusal(ERRORS.disabled);
     }
     if (target.key === FEATURES.SWING && !this.config.swing) {
@@ -1019,10 +1020,8 @@ export class CoolMasterApp {
     const results = await session.pipeline(
       jobs.map((job) => `off ${job.target.uid}`),
       {
+        // No option check: a stop is never refused for the option.
         beforeEach: (i) => {
-          if (!this.config.allowCommands) {
-            throw this.refusal(ERRORS.disabled);
-          }
           if (this.now() > jobs[i].sendBy) {
             throw this.refusal(ERRORS.tooSlow);
           }

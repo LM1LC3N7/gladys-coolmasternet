@@ -35,7 +35,8 @@ Les températures sont toujours en °C dans Gladys ; une passerelle réglée en
    `:port` si vous avez changé le port) et enregistrez.
 3. Les unités apparaissent dans l'onglet **Découverte** : ajoutez-les.
 4. Pour piloter les unités, activez **Autoriser les commandes**. Sans cette
-   option, l'intégration est en lecture seule et refuse toute commande.
+   option, l'intégration est en lecture seule et refuse toute commande, sauf
+   l'arrêt d'une unité, jamais bloqué.
 
 Options :
 
@@ -55,12 +56,12 @@ de confiance, jamais exposée à Internet.
 
 Les commandes suivent des règles strictes :
 
-- désactivées par défaut ;
+- désactivées par défaut, sauf l'arrêt (toujours permis, option ou non) ;
 - avant chaque commande, l'intégration relit le numéro de série de la
   passerelle et l'état de l'unité : si la passerelle n'est pas celle de
   l'appareil (adresse IP réattribuée) ou si l'état est illisible, rien n'est
   envoyé ;
-- l'option est revérifiée juste avant l'envoi ; une commande qui ne peut pas
+- l'option est revérifiée juste avant l'envoi (pas pour un arrêt) ; une commande qui ne peut pas
   partir dans les 3,5 s est refusée sans être envoyée ;
 - une commande n'est confirmée que si l'état relu montre la valeur demandée ;
   sinon Gladys affiche « Commande envoyée, sans confirmation » et l'unité est

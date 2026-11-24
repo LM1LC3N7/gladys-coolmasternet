@@ -41,7 +41,8 @@
   states are not shown and commands are refused until a read shows it.
 - On/off as `air-conditioning/binary` (as MELCloud and the WF-RAC module): a
   "turn everything off" reaching it only stops the unit (the protective way).
-  Switching on stays behind the option like every command.
+  Switching on stays behind the option like every other command; switching
+  off never needs it (fixed 2026-11-24, review w10 r1).
 - Commands: one per unit at a time; the stop (off) is never refused for a
   command in flight, cancels the pending one (checked right before its
   write), is never skipped as "already off", and works after a restart

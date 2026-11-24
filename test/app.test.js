@@ -269,13 +269,49 @@ test('a bridge without any serial: the readable fallback id, kept', async (t) =>
   );
 });
 
-test('commands are off by default: refused, nothing connected', async (t) => {
+test('commands are off by default: refused, nothing written, except switching off', async (t) => {
   const server = fakeBridges();
   const { send } = await setup(t, { server });
-  const ack = await send('power', 0);
-  assert.equal(ack.success, false);
-  assert.match(failure(ack), /commandes/i);
-  assert.equal(server.connections.length, 1);
+  for (const [key, value] of [
+    ['power', 1],
+    ['mode', 1],
+    ['target-temperature', 22],
+  ]) {
+    const ack = await send(key, value);
+    assert.equal(ack.success, false, `${key} ${value}`);
+    assert.match(failure(ack), /commandes/i);
+  }
+  assert.equal(server.writes().length, 0);
+  // Switching off is protective: never behind the option.
+  const off = await send('power', 0);
+  assert.equal(off.success, true, failure(off));
+  assert.deepEqual(
+    server.writes().map((l) => l.line),
+    ['off L1.100'],
+  );
+  // Switching on is still refused.
+  const on = await send('power', 1);
+  assert.equal(on.success, false);
+  assert.match(failure(on), /commandes/i);
+  assert.equal(server.writes().length, 1);
+});
+
+test('commands turned off during a stop: the stop still goes out', async (t) => {
+  const server = fakeBridges();
+  const { gladys, app, advance } = await setup(t, { server, config: ALLOWED });
+  server.bridges[HOST].delays = { set: 1_000 };
+  const d = gladys.fake.devices.find((x) => x.external_id === device());
+  const power = d.features.find((x) => x.external_id === feature('power'));
+  const ack = gladys.fake.setValue(d, power, 0);
+  await advance(500);
+  app.configUpdated(CONFIG);
+  await advance(6 * SECOND);
+  const result = await ack;
+  assert.equal(result.success, true, failure(result));
+  assert.deepEqual(
+    server.writes().map((l) => l.line),
+    ['off L1.100'],
+  );
 });
 
 test('a setpoint: checked, read just before, written, confirmed by the read back', async (t) => {

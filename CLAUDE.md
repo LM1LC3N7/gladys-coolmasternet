@@ -17,8 +17,8 @@ its only runtime dependency. It started from the official JavaScript template.
 ```bash
 npm install
 npm test                                  # node --test --test-timeout=60000
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/protocol.test.js         # one file
+node --test --test-name-pattern "setpoint" # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -50,7 +50,8 @@ scripts/cover.mjs                 generates cover.png (800x534, plain Node)
 ```
 
 Logic ported from pycoolmasternet-async (MIT): keep `THIRD_PARTY_NOTICES.md`
-up to date. Commands stay off by default; the stop (off) is never blocked.
+up to date. Commands stay off by default; the stop (off) is never blocked, not even
+by the option.
 Reads are never sooner than the interval. The command line of the bridge has
 no password: the docs say to keep it on a trusted network.
 

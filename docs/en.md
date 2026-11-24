@@ -34,7 +34,8 @@ ways.
    the port) and save.
 3. The units show up in the **Discovery** tab: add them.
 4. To control the units, turn on **Allow the commands**. Without it, the
-   integration is read only and refuses every command.
+   integration is read only and refuses every command except switching a
+   unit off, which is never blocked.
 
 Options:
 
@@ -52,11 +53,11 @@ Internet.
 
 Commands follow strict rules:
 
-- off by default;
+- off by default, except switching off (always allowed, option or not);
 - before each command, the integration reads the serial number of the bridge
   and the state of the unit again: if the bridge is not the device's (IP
   address given to another one) or the state cannot be read, nothing is sent;
-- the option is checked again right before sending; a command that cannot
+- the option is checked again right before sending (not for a stop); a command that cannot
   leave within 3.5 s is refused unsent;
 - a command is confirmed only when the state read back shows the value asked;
   otherwise Gladys shows "Command sent, without confirmation" and the unit is

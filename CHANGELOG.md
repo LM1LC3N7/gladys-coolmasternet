@@ -13,6 +13,8 @@ the notes of the version's GitHub Release.
 ### Changed
 
 - Integration SDK 0.16.1 (no change for the devices).
+- Switching a unit off no longer needs "Allow the commands": a stop is never
+  blocked. Switching on and the other commands still need the option.
 
 ## [0.1.2] - 2026-10-23
 
